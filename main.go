@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/mavricknz/ldap"
+	"gopkg.in/ini.v1"
 	"log"
 	"net/http"
 	"net/http/fcgi"
@@ -16,11 +17,16 @@ import (
 )
 
 var (
-	userf = flag.String("U", "uid=%s,cn=users,cn=accounts,dc=example,dc=com", "username template")
-	realm = flag.String("r", "EXAMPLE.COM", "authentication realm")
-	host  = flag.String("h", "ldap.example.com", "LDAP server host")
-	port  = flag.Uint("p", 636, "LDAP server port")
-	ttl   = flag.Duration("t", 60*time.Second, "cache TTL")
+	config_path = flag.String("c", "/etc/ldap/nginx_ldap_bind.ini", "Configuration file")
+
+	basedn    string
+	host      string
+	port      uint64
+	filter    string
+	bind_user string
+	bind_pass string
+	realm     string
+	ttl       time.Duration
 
 	ErrNoAuth       = errors.New("http: no or invalid authorization header")
 	ErrHost         = errors.New("http: no credential for provided host")
@@ -28,13 +34,29 @@ var (
 	basic           = "Basic "
 	authorization   = "Authorization"
 	wwwAuthenticate = "Www-Authenticate"
+
+	ldap_atrributes = []string{"uid"}
 )
 
 func init() {
 	flag.Parse()
+	var err error
+	if cfg, err = ini.Load(*config_path); err != nil {
+		panic(err)
+	}
+
+	basedn = cfg.Section("").Key("ldap_basedn").String()
+	host = cfg.Section("").Key("ldap_host").String()
+	port, _ = cfg.Section("").Key("ldap_port").Uint64()
+	filter = cfg.Section("").Key("ldap_filter").String()
+	bind_user = cfg.Section("").Key("ldap_username").String()
+	bind_pass = cfg.Section("").Key("ldap_password").String()
+	realm = cfg.Section("").Key("httpauth_realm").String()
+	ttl, _ = time.ParseDuration(cfg.Section("").Key("httpauth_cache_ttl").String())
 }
 
 type Server struct{}
+
 type entry struct {
 	valid bool
 	until time.Time
@@ -43,21 +65,49 @@ type entry struct {
 var cache = make(map[string]*entry)
 var tlsConfig = &tls.Config{InsecureSkipVerify: true}
 var server = &Server{}
+var cfg *ini.File
 
 func (s *Server) authenticate(username, password string) (r bool, e error) {
-	l := ldap.NewLDAPSSLConnection(*host, uint16(*port), tlsConfig)
+	// connect to ldap server
+	l := ldap.NewLDAPSSLConnection(host, uint16(port), tlsConfig)
 	e = l.Connect()
 	if e != nil {
 		return
 	}
 
 	defer l.Close()
-	dn := fmt.Sprintf(*userf, username)
-	e = l.Bind(dn, password)
 
-	if e == nil {
-		r = true
+	// bind with authenticated user
+	e = l.Bind(bind_user, bind_pass)
+	if e != nil {
+		fmt.Println(e)
+		return
 	}
+
+	// search user with filter
+	ldap_filter := fmt.Sprintf(filter, username)
+
+	search_request := ldap.NewSimpleSearchRequest(
+		basedn,
+		2,
+		ldap_filter,
+		ldap_atrributes,
+	)
+
+	search_result, err := l.Search(search_request)
+	if err != nil {
+		return
+	}
+
+	// bind with http user if it found on search
+	if len(search_result.Entries) == 1 {
+		dn := fmt.Sprintf("uid=%s,%s", username, basedn)
+		e = l.Bind(dn, password)
+		if e == nil {
+			r = true
+		}
+	}
+
 	return
 }
 
@@ -72,7 +122,7 @@ func splitAuth(h string) (string, []byte, error) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add(wwwAuthenticate, fmt.Sprintf("Basic realm=\"%s\"", *realm))
+	w.Header().Add(wwwAuthenticate, fmt.Sprintf("Basic realm=\"%s\"", realm))
 
 	_, data, err := splitAuth(r.Header.Get(authorization))
 	if err != nil {
@@ -96,7 +146,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	username, password := string(data[:i]), string(data[i+1:])
 	valid, err := s.authenticate(username, password)
 	if valid {
-		cache[k] = &entry{valid: true, until: t.Add(*ttl)}
+		cache[k] = &entry{valid: true, until: t.Add(ttl)}
 		w.WriteHeader(200)
 	} else {
 		w.WriteHeader(401)
