@@ -1,4 +1,4 @@
-# nginx-auth-adyax-ldap
+# nginx-auth-subrequest-ldap
 
 This service provides LDAP authentication for nginx via the [http_auth_request API](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html).
 
