@@ -101,7 +101,7 @@ func (s *Server) authenticate(username, password string) (r bool, e error) {
 
 	// bind with http user if it found on search
 	if len(search_result.Entries) == 1 {
-		dn := fmt.Sprintf("uid=%s,%s", username, basedn)
+		dn := search_result.Entries[0].DN
 		e = l.Bind(dn, password)
 		if e == nil {
 			r = true
