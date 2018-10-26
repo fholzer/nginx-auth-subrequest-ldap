@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/konsorten/go-windows-terminal-sequences"
+  packages = ["."]
+  revision = "5c8c8bd35d3832f5d134ae1e1e375b69a4d25242"
+  version = "v1.0.1"
+
+[[projects]]
   branch = "master"
   name = "github.com/mavricknz/asn1-ber"
   packages = ["."]
@@ -20,6 +26,27 @@
   version = "v2.1.0"
 
 [[projects]]
+  name = "github.com/sirupsen/logrus"
+  packages = ["."]
+  revision = "ad15b42461921f1fb3529b058c6786c6a45d5162"
+  version = "v1.1.1"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["ssh/terminal"]
+  revision = "e84da0312774c21d64ee2317962ef669b27ffb41"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/sys"
+  packages = [
+    "unix",
+    "windows"
+  ]
+  revision = "731415f00dce967a133e841b3079eda31c996761"
+
+[[projects]]
   name = "gopkg.in/ini.v1"
   packages = ["."]
   revision = "9c8236e659b76e87bf02044d06fde8683008ff3e"
@@ -28,6 +55,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "750c42a417912458e08381207285dd39dc8dd6416e0a90a4081a4e22d4f4fef7"
+  inputs-digest = "56a3404d6cc7d20560a590aff7346562e99b2f1982d0373f95b72bfc0c13efad"
   solver-name = "gps-cdcl"
   solver-version = 1
