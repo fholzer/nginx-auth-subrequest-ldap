@@ -11,23 +11,29 @@ import (
 	"github.com/patrickmn/go-cache"
 	"gopkg.in/ini.v1"
 	"log"
+	"net"
 	"net/http"
 	"net/http/fcgi"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
 var (
 	config_path = flag.String("c", "/etc/ldap/nginx_ldap_bind.ini", "Configuration file")
 
-	basedn    string
-	host      string
-	port      uint64
-	filter    string
-	bind_user string
-	bind_pass string
-	realm     string
-	neg_ttl   time.Duration
+	basedn         string
+	host           string
+	port           uint64
+	filter         string
+	bind_user      string
+	bind_pass      string
+	realm          string
+	neg_ttl        time.Duration
+	server_network string
+	server_address string
 
 	ErrNoAuth       = errors.New("http: no or invalid authorization header")
 	ErrHost         = errors.New("http: no credential for provided host")
@@ -52,6 +58,8 @@ func init() {
 	filter = cfg.Section("").Key("ldap_filter").String()
 	bind_user = cfg.Section("").Key("ldap_username").String()
 	bind_pass = cfg.Section("").Key("ldap_password").String()
+	server_network = cfg.Section("").Key("server_network").String()
+	server_address = cfg.Section("").Key("server_address").String()
 	realm = cfg.Section("").Key("httpauth_realm").String()
 	ttl, _ := time.ParseDuration(cfg.Section("").Key("httpauth_cache_ttl").String())
 	neg_ttl, _ = time.ParseDuration(cfg.Section("").Key("httpauth_cache_negative_ttl").String())
@@ -156,5 +164,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	log.Fatal(fcgi.Serve(nil, server))
+	var (
+		listener net.Listener
+		err      error
+	)
+
+	// prepare graceful shutdown
+	shuttingDown := false
+	var gracefulStop = make(chan os.Signal)
+	go func() {
+		<-gracefulStop
+		shuttingDown = true
+		log.Println("Shutting down...")
+		if listener != nil {
+			listener.Close()
+		}
+	}()
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+
+	// create listener if needed
+	if server_network != "stdin" {
+		log.Printf("Starting listener on  %s://%s", server_network, server_address)
+		listener, err = net.Listen(server_network, server_address)
+		if err != nil {
+			log.Fatal("net.Listen:", err)
+		}
+	} else {
+		log.Println("Using stdin as listener socket")
+	}
+
+	log.Println("Starting server...")
+	if err = fcgi.Serve(listener, server); err != nil && shuttingDown == false {
+		log.Fatal(err)
+	}
 }
