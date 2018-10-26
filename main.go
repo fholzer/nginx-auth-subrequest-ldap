@@ -27,6 +27,7 @@ var (
 	bind_user string
 	bind_pass string
 	realm     string
+	neg_ttl   time.Duration
 
 	ErrNoAuth       = errors.New("http: no or invalid authorization header")
 	ErrHost         = errors.New("http: no credential for provided host")
@@ -53,6 +54,7 @@ func init() {
 	bind_pass = cfg.Section("").Key("ldap_password").String()
 	realm = cfg.Section("").Key("httpauth_realm").String()
 	ttl, _ := time.ParseDuration(cfg.Section("").Key("httpauth_cache_ttl").String())
+	neg_ttl, _ = time.ParseDuration(cfg.Section("").Key("httpauth_cache_negative_ttl").String())
 	cleanupInterval, _ := time.ParseDuration(cfg.Section("").Key("httpauth_cache_cleanup_intreval").String())
 	c = cache.New(ttl, cleanupInterval)
 }
@@ -60,7 +62,7 @@ func init() {
 type Server struct{}
 
 type entry struct {
-	valid bool
+	response int
 }
 
 var c *cache.Cache
@@ -132,8 +134,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	k := string(data)
-	if _, found := c.Get(k); found {
-		w.WriteHeader(200)
+	if x, found := c.Get(k); found {
+		w.WriteHeader((x.(*entry)).response)
 		return
 	}
 
@@ -145,9 +147,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	username, password := string(data[:i]), string(data[i+1:])
 	valid, err := s.authenticate(username, password)
 	if valid {
-		c.Set(k, &entry{valid: true}, cache.DefaultExpiration)
+		c.Set(k, &entry{response: 200}, cache.DefaultExpiration)
 		w.WriteHeader(200)
 	} else {
+		c.Set(k, &entry{response: 401}, neg_ttl)
 		w.WriteHeader(401)
 	}
 }
