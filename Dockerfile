@@ -15,4 +15,6 @@ COPY --from=0 /go/src/github/fholzer/nginx-auth-subrequest-ldap/nginx-auth-subre
 COPY --from=0 /go/src/github/fholzer/nginx-auth-subrequest-ldap/example-config.ini /etc/ldap/nginx_ldap_bind.ini
 VOLUME /var/run/nginx-auth-subrequest-ldap
 
+EXPOSE 5000
+
 CMD nginx-auth-subrequest-ldap

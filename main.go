@@ -174,6 +174,7 @@ func (s *authServer) authenticate(username, password string) (r bool, e error) {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),
+			"username": username,
 		}).Warn("Failed to search LDAP server.")
 		return
 	}
@@ -184,7 +185,16 @@ func (s *authServer) authenticate(username, password string) (r bool, e error) {
 		e = l.Bind(dn, password)
 		if e == nil {
 			r = true
+		} else {
+			log.WithFields(log.Fields{
+				"error": e.Error(),
+				"username": username,
+			}).Info("Authentication failed.")
 		}
+	} else {
+		log.WithFields(log.Fields{
+			"username": username,
+		}).Info("User not found or not matching filter.")
 	}
 
 	return
@@ -306,7 +316,7 @@ func main() {
 
 	// create listener if needed
 	if serverNetwork != "stdin" {
-		log.Info("Starting listener on  %s://%s", serverNetwork, serverAddress)
+		log.Infof("Starting listener on  %s://%s", serverNetwork, serverAddress)
 		listener, err = net.Listen(serverNetwork, serverAddress)
 		if err != nil {
 			log.Fatal("net.Listen:", err)
