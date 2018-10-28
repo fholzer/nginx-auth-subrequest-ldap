@@ -173,7 +173,7 @@ func (s *authServer) authenticate(username, password string) (r bool, e error) {
 	searchResult, err := l.Search(searchRequest)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error": err.Error(),
+			"error":    err.Error(),
 			"username": username,
 		}).Warn("Failed to search LDAP server.")
 		return
@@ -187,7 +187,7 @@ func (s *authServer) authenticate(username, password string) (r bool, e error) {
 			r = true
 		} else {
 			log.WithFields(log.Fields{
-				"error": e.Error(),
+				"error":    e.Error(),
 				"username": username,
 			}).Info("Authentication failed.")
 		}
@@ -274,7 +274,7 @@ func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func setupTLS() {
+func setupTLS(servername string) {
 	if sslVerify {
 		if sslCaFile != "" {
 			certs, err := loadCaFile(sslCaFile)
@@ -282,7 +282,8 @@ func setupTLS() {
 				log.Fatal("Failed to setup LDAP TLS config:", err)
 			}
 			tlsConfig = &tls.Config{
-				RootCAs: certs,
+				RootCAs:    certs,
+				ServerName: servername,
 			}
 		}
 	} else {
@@ -312,7 +313,7 @@ func main() {
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
 
-	setupTLS()
+	setupTLS(host)
 
 	// create listener if needed
 	if serverNetwork != "stdin" {
