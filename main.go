@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/ini.v1"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/fcgi"
@@ -35,6 +37,9 @@ var (
 	server_network string
 	server_address string
 
+	ssl_verify  bool
+	ssl_ca_file string
+
 	ErrNoAuth       = errors.New("http: no or invalid authorization header")
 	ErrHost         = errors.New("http: no credential for provided host")
 	negotiate       = "Negotiate "
@@ -58,6 +63,8 @@ func init() {
 	filter = cfg.Section("").Key("ldap_filter").String()
 	bind_user = cfg.Section("").Key("ldap_username").String()
 	bind_pass = cfg.Section("").Key("ldap_password").String()
+	ssl_verify_s := cfg.Section("").Key("ssl_verification").String()
+	ssl_ca_file = cfg.Section("").Key("ssl_ca_file").String()
 	server_network = cfg.Section("").Key("server_network").String()
 	server_address = cfg.Section("").Key("server_address").String()
 	log_file := cfg.Section("").Key("log_file").String()
@@ -97,6 +104,15 @@ func init() {
 		log.Fatal("Invalid log level.")
 	}
 	log.SetLevel(lvl)
+
+	switch ssl_verify_s {
+	case "true":
+		ssl_verify = true
+	case "false":
+		ssl_verify = false
+	default:
+		log.Fatal("Invalid value for ssl_verify option \"" + ssl_verify_s + "\"")
+	}
 }
 
 type Server struct{}
@@ -106,9 +122,21 @@ type entry struct {
 }
 
 var c *cache.Cache
-var tlsConfig = &tls.Config{InsecureSkipVerify: true}
+var tlsConfig *tls.Config //&tls.Config{InsecureSkipVerify: true}
 var server = &Server{}
 var cfg *ini.File
+
+func loadCaFile(file string) (*x509.CertPool, error) {
+	roots := x509.NewCertPool()
+
+	data, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	roots.AppendCertsFromPEM(data)
+
+	return roots, nil
+}
 
 func (s *Server) authenticate(username, password string) (r bool, e error) {
 	// connect to ldap server
@@ -236,6 +264,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func setupTls() {
+	if ssl_verify {
+		if ssl_ca_file != "" {
+			certs, err := loadCaFile(ssl_ca_file)
+			if err != nil {
+				log.Fatal("Failed to setup LDAP TLS config:", err)
+			}
+			tlsConfig = &tls.Config{
+				RootCAs: certs,
+			}
+		}
+	} else {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+}
+
 func main() {
 	var (
 		listener net.Listener
@@ -255,6 +301,8 @@ func main() {
 	}()
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
+
+	setupTls()
 
 	// create listener if needed
 	if server_network != "stdin" {
