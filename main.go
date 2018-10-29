@@ -2,17 +2,12 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/mavricknz/ldap"
 	"github.com/patrickmn/go-cache"
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/ini.v1"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/fcgi"
@@ -20,25 +15,11 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 )
 
 var (
 	configPath = flag.String("c", "/etc/ldap/nginx_ldap_bind.ini", "Configuration file")
-
-	basedn        string
-	host          string
-	port          uint64
-	filter        string
-	bindUser      string
-	bindPass      string
-	realm         string
-	negTTL        time.Duration
-	serverNetwork string
-	serverAddress string
-
-	sslVerify bool
-	sslCaFile string
+	conf       *config
 
 	errNoAuth       = errors.New("http: no or invalid authorization header")
 	errHost         = errors.New("http: no credential for provided host")
@@ -53,30 +34,13 @@ var (
 func init() {
 	flag.Parse()
 	var err error
-	if cfg, err = ini.Load(*configPath); err != nil {
-		panic(err)
+	if conf, err = newConfigFromFile(configPath); err != nil {
+		log.Fatal("Error reading config file:", err)
 	}
 
-	basedn = cfg.Section("").Key("ldap_basedn").String()
-	host = cfg.Section("").Key("ldap_host").String()
-	port, _ = cfg.Section("").Key("ldap_port").Uint64()
-	filter = cfg.Section("").Key("ldap_filter").String()
-	bindUser = cfg.Section("").Key("ldap_username").String()
-	bindPass = cfg.Section("").Key("ldap_password").String()
-	sslVerifyS := cfg.Section("").Key("ssl_verification").String()
-	sslCaFile = cfg.Section("").Key("ssl_ca_file").String()
-	serverNetwork = cfg.Section("").Key("server_network").String()
-	serverAddress = cfg.Section("").Key("server_address").String()
-	logFile := cfg.Section("").Key("log_file").String()
-	logFormat := cfg.Section("").Key("log_format").String()
-	logLevel := cfg.Section("").Key("log_level").String()
-	realm = cfg.Section("").Key("httpauth_realm").String()
-	ttl, _ := time.ParseDuration(cfg.Section("").Key("httpauth_cache_ttl").String())
-	negTTL, _ = time.ParseDuration(cfg.Section("").Key("httpauth_cache_negative_ttl").String())
-	cleanupInterval, _ := time.ParseDuration(cfg.Section("").Key("httpauth_cache_cleanup_intreval").String())
-	c = cache.New(ttl, cleanupInterval)
+	c = cache.New(conf.CacheTTL, conf.CacheCleanupInterval)
 
-	switch logFormat {
+	switch conf.LogFormat {
 	case "text":
 		log.SetFormatter(&log.TextFormatter{})
 	case "json":
@@ -85,13 +49,13 @@ func init() {
 		log.Fatal("Unknown log format.")
 	}
 
-	switch logFile {
+	switch conf.LogFile {
 	case "stdout":
 		log.SetOutput(os.Stdout)
 	case "stderr":
 		log.SetOutput(os.Stderr)
 	default:
-		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err == nil {
 			log.SetOutput(file)
 		} else {
@@ -99,106 +63,23 @@ func init() {
 		}
 	}
 
-	lvl, err := log.ParseLevel(logLevel)
+	lvl, err := log.ParseLevel(conf.LogLevel)
 	if err != nil {
 		log.Fatal("Invalid log level.")
 	}
 	log.SetLevel(lvl)
-
-	switch sslVerifyS {
-	case "true":
-		sslVerify = true
-	case "false":
-		sslVerify = false
-	default:
-		log.Fatal("Invalid value for ssl_verification option \"" + sslVerifyS + "\"")
-	}
 }
 
-type authServer struct{}
+type authServer struct {
+	auth AuthenticationProvider
+}
 
 type entry struct {
 	response int
 }
 
 var c *cache.Cache
-var tlsConfig *tls.Config //&tls.Config{InsecureSkipVerify: true}
 var server = &authServer{}
-var cfg *ini.File
-
-func loadCaFile(file string) (*x509.CertPool, error) {
-	roots := x509.NewCertPool()
-
-	data, err := ioutil.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	roots.AppendCertsFromPEM(data)
-
-	return roots, nil
-}
-
-func (s *authServer) authenticate(username, password string) (r bool, e error) {
-	// connect to ldap server
-	l := ldap.NewLDAPSSLConnection(host, uint16(port), tlsConfig)
-	e = l.Connect()
-	if e != nil {
-		log.WithFields(log.Fields{
-			"error": e.Error(),
-		}).Error("Failed to connect to LDAP server.")
-		return
-	}
-
-	defer l.Close()
-
-	// bind with authenticated user
-	e = l.Bind(bindUser, bindPass)
-	if e != nil {
-		log.WithFields(log.Fields{
-			"error": e.Error(),
-		}).Error("Failed to bind to LDAP server.")
-		return
-	}
-
-	// search user with filter
-	ldapFilter := fmt.Sprintf(filter, username)
-
-	searchRequest := ldap.NewSimpleSearchRequest(
-		basedn,
-		2,
-		ldapFilter,
-		ldapAtrributes,
-	)
-
-	searchResult, err := l.Search(searchRequest)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error":    err.Error(),
-			"username": username,
-		}).Warn("Failed to search LDAP server.")
-		return
-	}
-
-	// bind with http user if it found on search
-	if len(searchResult.Entries) == 1 {
-		dn := searchResult.Entries[0].DN
-		e = l.Bind(dn, password)
-		if e == nil {
-			r = true
-		} else {
-			log.WithFields(log.Fields{
-				"error":    e.Error(),
-				"username": username,
-			}).Info("Authentication failed.")
-		}
-	} else {
-		log.WithFields(log.Fields{
-			"username": username,
-		}).Info("User not found or not matching filter.")
-	}
-
-	return
-}
 
 func splitAuth(h string) (string, []byte, error) {
 	i := strings.Index(h, " ")
@@ -211,7 +92,7 @@ func splitAuth(h string) (string, []byte, error) {
 }
 
 func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add(wwwAuthenticate, fmt.Sprintf("Basic realm=\"%s\"", realm))
+	w.Header().Add(wwwAuthenticate, fmt.Sprintf("Basic realm=\"%s\"", conf.AuthRealm))
 
 	headerValue := r.Header.Get(authorization)
 	_, data, err := splitAuth(headerValue)
@@ -252,7 +133,7 @@ func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, _ := s.authenticate(username, password)
+	valid, _ := s.auth.Authenticate(username, password)
 	if valid {
 		c.Set(k, &entry{response: 200}, cache.DefaultExpiration)
 		w.WriteHeader(200)
@@ -263,7 +144,7 @@ func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}).Debug("Successful authentication.")
 		}
 	} else {
-		c.Set(k, &entry{response: 401}, negTTL)
+		c.Set(k, &entry{response: 401}, conf.CacheNegativeTTL)
 		w.WriteHeader(401)
 		if log.IsLevelEnabled(log.DebugLevel) {
 			log.WithFields(log.Fields{
@@ -274,30 +155,13 @@ func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func setupTLS(servername string) {
-	if sslVerify {
-		if sslCaFile != "" {
-			certs, err := loadCaFile(sslCaFile)
-			if err != nil {
-				log.Fatal("Failed to setup LDAP TLS config:", err)
-			}
-			tlsConfig = &tls.Config{
-				RootCAs:    certs,
-				ServerName: servername,
-			}
-		}
-	} else {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-		}
-	}
-}
-
 func main() {
 	var (
 		listener net.Listener
 		err      error
 	)
+
+	server.auth = newLdapAuthenticationProvider(conf)
 
 	// prepare graceful shutdown
 	shuttingDown := false
@@ -313,12 +177,10 @@ func main() {
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
 
-	setupTLS(host)
-
 	// create listener if needed
-	if serverNetwork != "stdin" {
-		log.Infof("Starting listener on  %s://%s", serverNetwork, serverAddress)
-		listener, err = net.Listen(serverNetwork, serverAddress)
+	if conf.ServerNetwork != "stdin" {
+		log.Infof("Starting listener on  %s://%s", conf.ServerNetwork, conf.ServerAddress)
+		listener, err = net.Listen(conf.ServerNetwork, conf.ServerAddress)
 		if err != nil {
 			log.Fatal("net.Listen:", err)
 		}
