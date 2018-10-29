@@ -5,18 +5,21 @@ This service provides LDAP authentication for nginx via the [http_auth_request A
 ## Features
 
 * Authentication cache with configurable TTL
-* Bind DN template integrates with any LDAP provider/schema
-* Filter to search user on specified LDAP group
+  * Separate negative cache TTL configurable
+* Separate search filters for authentication and authorization
+* LDAP server certificate verification options:
+  * disabled
+  * enabled, using system default CA bundle
+  * enabled, using custome CA bundle file
+* Semantic logging, supporting:
+  * text format
+  * json format, ideal for shipping with Logstash or Filebeat
 
 ## Installation
 
-### Download precompiled binary
-
-Grab corresponding binary from [releases](https://github.com/akuznecov/nginx-auth-subrequest-ldap/releases)
-
 ### Build from source
 
-`go get -u github.com/akuznecov/nginx-auth-subrequest-ldap`
+`go get -u github.com/fholzer/nginx-auth-subrequest-ldap`
 
 ### Manually build binary
 
@@ -36,5 +39,4 @@ Grab corresponding binary from [releases](https://github.com/akuznecov/nginx-aut
 
 Use SystemD or [Supervisor](supervisord.org) to daemonize `nginx-auth-subrequest-ldap`
 
-Check example configuration files and correct it for your own environment
-
+Check example configuration files and adapt to fit your needs
