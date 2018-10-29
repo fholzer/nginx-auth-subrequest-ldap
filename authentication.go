@@ -1,23 +1,26 @@
 package main
 
 import (
-	"fmt"
-	"crypto/x509"
-	"io/ioutil"
 	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"github.com/mavricknz/ldap"
 	log "github.com/sirupsen/logrus"
+	"io/ioutil"
 )
 
 type AuthenticationProvider interface {
-	Authenticate(username, password string) (r bool, e error)
+	Authenticate(username, password string) (authenticationSuccess bool, authorizationSuccess bool, e error)
 }
 
 type ldapAuthenticationProvider struct {
 	conf *config
 }
 
-var tlsConfig *tls.Config
+var (
+	tlsConfig      *tls.Config
+	ldapAtrributes = []string{"uid"}
+)
 
 func newLdapAuthenticationProvider(conf *config) *ldapAuthenticationProvider {
 	res := &ldapAuthenticationProvider{
@@ -58,7 +61,7 @@ func loadCaFile(file string) (*x509.CertPool, error) {
 	return roots, nil
 }
 
-func (auth *ldapAuthenticationProvider) Authenticate(username, password string) (r bool, e error) {
+func (auth *ldapAuthenticationProvider) Authenticate(username, password string) (authenticationSuccess bool, authorizationSuccess bool, e error) {
 	// connect to ldap server
 	l := ldap.NewLDAPSSLConnection(conf.LdapHost, uint16(conf.LdapPort), tlsConfig)
 	e = l.Connect()
@@ -71,7 +74,7 @@ func (auth *ldapAuthenticationProvider) Authenticate(username, password string) 
 
 	defer l.Close()
 
-	// bind with authenticated user
+	// bind using service user provided via config
 	e = l.Bind(conf.BindUser, conf.BindPass)
 	if e != nil {
 		log.WithFields(log.Fields{
@@ -80,13 +83,13 @@ func (auth *ldapAuthenticationProvider) Authenticate(username, password string) 
 		return
 	}
 
-	// search user with filter
-	ldapFilter := fmt.Sprintf(conf.LdapFilter, username)
+	// check whether user exists
+	ldapAuthenticationFilter := fmt.Sprintf(conf.LdapAuthenticationFilter, username)
 
 	searchRequest := ldap.NewSimpleSearchRequest(
 		conf.LdapBaseDN,
 		2,
-		ldapFilter,
+		ldapAuthenticationFilter,
 		ldapAtrributes,
 	)
 
@@ -95,21 +98,44 @@ func (auth *ldapAuthenticationProvider) Authenticate(username, password string) 
 		log.WithFields(log.Fields{
 			"error":    err.Error(),
 			"username": username,
-		}).Warn("Failed to search LDAP server.")
+		}).Warn("Failed to search LDAP server for authentication.")
 		return
 	}
 
-	// bind with http user if it found on search
+	// bind with user provided credential for authentication
 	if len(searchResult.Entries) == 1 {
 		dn := searchResult.Entries[0].DN
 		e = l.Bind(dn, password)
-		if e == nil {
-			r = true
-		} else {
+		if e != nil {
 			log.WithFields(log.Fields{
 				"error":    e.Error(),
 				"username": username,
 			}).Info("Authentication failed.")
+			return
+		}
+		authenticationSuccess = true
+
+		// check whether user is authorized
+		ldapAuthorizationFilter := fmt.Sprintf(conf.LdapAuthorizationFilter, username)
+
+		searchRequest := ldap.NewSimpleSearchRequest(
+			conf.LdapBaseDN,
+			2,
+			ldapAuthorizationFilter,
+			ldapAtrributes,
+		)
+
+		searchResult, err := l.Search(searchRequest)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"error":    err.Error(),
+				"username": username,
+			}).Warn("Failed to search LDAP server for authorization.")
+			return
+		}
+
+		if len(searchResult.Entries) == 1 {
+			authorizationSuccess = true
 		}
 	} else {
 		log.WithFields(log.Fields{

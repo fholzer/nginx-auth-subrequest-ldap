@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var (
@@ -27,8 +28,6 @@ var (
 	basic           = "Basic "
 	authorization   = "Authorization"
 	wwwAuthenticate = "Www-Authenticate"
-
-	ldapAtrributes = []string{"uid"}
 )
 
 func init() {
@@ -133,25 +132,37 @@ func (s *authServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, _ := s.auth.Authenticate(username, password)
-	if valid {
-		c.Set(k, &entry{response: 200}, cache.DefaultExpiration)
-		w.WriteHeader(200)
-		if log.IsLevelEnabled(log.DebugLevel) {
-			log.WithFields(log.Fields{
-				"username": username,
-				"response": 200,
-			}).Debug("Successful authentication.")
+	authenticationSuccess, authorizationSuccess, _ := s.auth.Authenticate(username, password)
+
+	var (
+		responseCode     int
+		responseCacheTTL time.Duration
+		responseMessage  string
+	)
+
+	if authenticationSuccess {
+		if authorizationSuccess {
+			responseCode = 200
+			responseCacheTTL = cache.DefaultExpiration
+			responseMessage = "Authentication and authorization successful."
+		} else {
+			responseCode = 403
+			responseCacheTTL = cache.DefaultExpiration
+			responseMessage = "Authentication successful, authorization failed."
 		}
 	} else {
-		c.Set(k, &entry{response: 401}, conf.CacheNegativeTTL)
-		w.WriteHeader(401)
-		if log.IsLevelEnabled(log.DebugLevel) {
-			log.WithFields(log.Fields{
-				"username": username,
-				"response": 401,
-			}).Debug("Failed authentication.")
-		}
+		responseCode = 401
+		responseCacheTTL = conf.CacheNegativeTTL
+		responseMessage = "Authentication failed."
+	}
+
+	c.Set(k, &entry{response: responseCode}, responseCacheTTL)
+	w.WriteHeader(responseCode)
+	if log.IsLevelEnabled(log.DebugLevel) {
+		log.WithFields(log.Fields{
+			"username": username,
+			"response": responseCode,
+		}).Debug(responseMessage)
 	}
 }
 
