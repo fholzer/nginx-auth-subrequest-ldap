@@ -1,2 +1,3 @@
 vendor/
 nginx-auth-subrequest-ldap
+rpmbuild/
