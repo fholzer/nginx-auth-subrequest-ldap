@@ -12,7 +12,7 @@ FROM alpine:3.8
 RUN apk --no-cache add ca-certificates
 WORKDIR /usr/bin
 COPY --from=0 /go/src/github/fholzer/nginx-auth-subrequest-ldap/nginx-auth-subrequest-ldap /usr/bin/nginx-auth-subrequest-ldap
-COPY --from=0 /go/src/github/fholzer/nginx-auth-subrequest-ldap/example-config.ini /etc/ldap/nginx_ldap_bind.ini
+COPY --from=0 /go/src/github/fholzer/nginx-auth-subrequest-ldap/examples/docker/config.ini /etc/ldap/nginx_ldap_bind.ini
 VOLUME /var/run/nginx-auth-subrequest-ldap
 
 EXPOSE 5000
