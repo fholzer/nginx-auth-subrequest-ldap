@@ -1,6 +1,7 @@
 
 [Socket]
 ListenStream=/var/run/nginx-auth-subrequest-ldap.sock
+User=nginx
 
 [Install]
 WantedBy=sockets.target

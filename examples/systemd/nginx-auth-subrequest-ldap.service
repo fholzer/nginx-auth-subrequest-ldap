@@ -1,8 +1,8 @@
 
 [Service]
-ExecStart=/usr/local/bin/nginx-auth-subrequest-ldap -c=/etc/ldap/nginx-auth-subrequest-ldap.ini
+ExecStart=/usr/bin/nginx-auth-subrequest-ldap -c=/etc/ldap/config.ini
 StandardInput=socket
-User=root
+User=nginx
 
 [Install]
 WantedBy=multi-user.target

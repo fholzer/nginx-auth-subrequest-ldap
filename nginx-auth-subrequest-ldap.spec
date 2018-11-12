@@ -12,6 +12,8 @@ BuildRequires:  golang
 %{?systemd_requires}
 BuildRequires:  systemd
 
+Requires: nginx
+
 %description
 Provides LDAP authentication for nginx via the http_auth_request API.
 
@@ -30,8 +32,8 @@ GOOS=linux go build -ldflags="-s -w"
 %install
 GO_BUILD_DIR=$RPM_BUILD_DIR/go/src/github.com/fholzer/%{name}
 
-mkdir -p $RPM_BUILD_ROOT/%{_sbindir}
-cp $GO_BUILD_DIR/%{name} $RPM_BUILD_ROOT/%{_sbindir}
+mkdir -p $RPM_BUILD_ROOT/%{_bindir}
+cp $GO_BUILD_DIR/%{name} $RPM_BUILD_ROOT/%{_bindir}
 
 mkdir -p $RPM_BUILD_ROOT/etc/ldap
 cp $GO_BUILD_DIR/examples/systemd/config.ini $RPM_BUILD_ROOT/etc/ldap/
@@ -46,11 +48,11 @@ mkdir -p $RPM_BUILD_ROOT/var/log/nginx-auth-subrequest-ldap
 %files
 %defattr(644,root,root,755)
 %config(noreplace) %{_sysconfdir}/ldap/config.ini
-%config(noreplace) %{_unitdir}/nginx-auth-subrequest-ldap.service
-%config(noreplace) %{_unitdir}/nginx-auth-subrequest-ldap.socket
+%{_unitdir}/nginx-auth-subrequest-ldap.service
+%{_unitdir}/nginx-auth-subrequest-ldap.socket
 
-%defattr(754,root,root,755)
-%{_sbindir}/nginx-auth-subrequest-ldap
+%defattr(755,root,root,755)
+%{_bindir}/nginx-auth-subrequest-ldap
 
 %dir /var/log/nginx-auth-subrequest-ldap
 
