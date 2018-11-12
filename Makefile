@@ -35,7 +35,7 @@ rpmbuild/SPECS/$(PKGNAME).spec: $(PKGNAME).spec
 
 .PHONY: rpm-init
 rpm-init:
-	for i in SOURCE SPECS SRPMS RPMS BUILD BUILDROOT; do \
+	for i in SOURCES SPECS SRPMS RPMS BUILD BUILDROOT; do \
 		mkdir -p rpmbuild/$$i; \
 	done
 
