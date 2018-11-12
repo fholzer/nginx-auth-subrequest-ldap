@@ -1,3 +1,7 @@
+PKGNAME=nginx-auth-subrequest-ldap
+PKGVERSION=1.1
+PKGRELEASE=1
+
 GO_PROJECT_FILES=$(shell find -maxdepth 1 -type f -name '*.go')
 GO_VENDOR_FILES=$(shell find vendor/ -type f -name '*.go')
 GO_FILES=$(GO_PROJECT_FILES) $(GO_VENDOR_FILES)
@@ -22,10 +26,6 @@ prepare:
 	golint
 	ineffassign .
 	misspell -error main
-
-PKGNAME=nginx-auth-subrequest-ldap
-PKGVERSION=1
-PKGRELEASE=1
 
 rpmbuild/SOURCES/$(PKGNAME)-v$(PKGVERSION).tar.gz: $(GO_FILES) $(EXAMPLE_FILES)
 	tar --exclude="./rpmbuild" --transform 's,^\.,./nginx-auth-subrequest-ldap,' -czf rpmbuild/SOURCES/$(PKGNAME)-v$(PKGVERSION).tar.gz .
