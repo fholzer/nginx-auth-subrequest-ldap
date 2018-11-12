@@ -46,14 +46,17 @@ mkdir -p $RPM_BUILD_ROOT/var/log/nginx-auth-subrequest-ldap
 
 
 %files
-%defattr(644,root,root,755)
+%defattr(640,root,nginx,750)
 %config(noreplace) %{_sysconfdir}/ldap/config.ini
+
+%defattr(644,root,root,755)
 %{_unitdir}/nginx-auth-subrequest-ldap.service
 %{_unitdir}/nginx-auth-subrequest-ldap.socket
 
 %defattr(755,root,root,755)
 %{_bindir}/nginx-auth-subrequest-ldap
 
+%defattr(640,nginx,adm,750)
 %dir /var/log/nginx-auth-subrequest-ldap
 
 %clean

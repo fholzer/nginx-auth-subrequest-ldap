@@ -1,6 +1,6 @@
 PKGNAME=nginx-auth-subrequest-ldap
 PKGVERSION=1.1
-PKGRELEASE=1
+PKGRELEASE=2
 
 GO_PROJECT_FILES=$(shell find -maxdepth 1 -type f -name '*.go')
 GO_VENDOR_FILES=$(shell find vendor/ -type f -name '*.go')
